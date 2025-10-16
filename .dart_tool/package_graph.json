@@ -1,10 +1,10 @@
 {
   "roots": [
-    "flutter_application_1"
+    "LateInterestApp"
   ],
   "packages": [
     {
-      "name": "flutter_application_1",
+      "name": "LateInterestApp",
       "version": "1.0.0+1",
       "dependencies": [
         "cupertino_icons",

@@ -1,4 +1,4 @@
-# flutter_application_1
+# LateInterestApp
 
 A new Flutter project.
 
