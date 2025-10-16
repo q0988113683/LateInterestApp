@@ -30,6 +30,7 @@ class _LateInterestHomeState extends State<LateInterestHome> {
   final _paidBeforeController = TextEditingController();
   final _totalPaidController = TextEditingController();
   final _loanAmountController = TextEditingController();
+  final _loanLostDayController = TextEditingController();
 
   static const double _dailyRate = 0.0005;
 
@@ -58,6 +59,9 @@ class _LateInterestHomeState extends State<LateInterestHome> {
     _permitActualDate = DateTime(2025, 1, 3);
     _notifyDate = DateTime(2025, 10, 9);
     _loanDate = DateTime(2025, 09, 25);
+
+    _loanLostDayController.text = '365';
+    _loanAmountController.text = '10000000';
   }
 
   void _setBuilding(String building) {
@@ -84,6 +88,9 @@ class _LateInterestHomeState extends State<LateInterestHome> {
     final loanAmount =
         double.tryParse(_loanAmountController.text.replaceAll(',', '')) ?? 0;
 
+    final loanLostDay =
+        double.tryParse(_loanLostDayController.text.replaceAll(',', '')) ?? 0;
+
     final paidAfter = totalPaid - paidBefore;
 
     // 1️⃣ 延遲取得使用執照
@@ -106,9 +113,7 @@ class _LateInterestHomeState extends State<LateInterestHome> {
     final violation3 = paidAfter * _dailyRate * delay3Safe;
 
     // 4️⃣ 新青安補助
-    final greenStart = _permitDueDate!;
-    final greenEnd = _loanDate!;
-    final greenDays = greenEnd.difference(greenStart).inDays;
+    final greenDays = loanLostDay;
     const double greenRate = 0.00375; // 0.375%
     final greenLoss = loanAmount * greenRate * greenDays / 365;
     final greenProcess =
@@ -173,6 +178,8 @@ class _LateInterestHomeState extends State<LateInterestHome> {
                 '總已繳金額（已繳金額+貸款(一般貸款+新青安)）',
                 _totalPaidController,
               ),
+              const SizedBox(height: 40),
+              _buildMoneyField('新青安損失天數', _loanLostDayController),
               _buildMoneyField('貸款金額（新青安）', _loanAmountController),
               const SizedBox(height: 20),
 
