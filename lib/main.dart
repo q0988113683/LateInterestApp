@@ -11,7 +11,7 @@ class LateInterestApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '遲延利息計算工具',
+      title: '延遲利息與新青安補助試算',
       theme: ThemeData(primarySwatch: Colors.blue),
       home: const LateInterestHome(),
     );
@@ -27,37 +27,104 @@ class LateInterestHome extends StatefulWidget {
 
 class _LateInterestHomeState extends State<LateInterestHome> {
   final _formKey = GlobalKey<FormState>();
-  final _moneyController = TextEditingController();
+  final _paidBeforeController = TextEditingController();
+  final _totalPaidController = TextEditingController();
+  final _loanAmountController = TextEditingController();
 
-  DateTime? _originalDate;
-  DateTime? _actualDate;
-  DateTime? _borrowRenovationDate;
-
-  // 固定：每日萬分之五（0.05%/日）單利
   static const double _dailyRate = 0.0005;
 
-  // 計算結果
-  int? _daysTotal; // 原始交屋 -> 真正交屋
-  int? _daysToBorrow; // 原始交屋 -> 借屋裝修日期（若有）
-  double? _interestTotal;
-  double? _interestFromBorrow;
+  DateTime? _permitDueDate;
+  DateTime? _permitActualDate;
+  DateTime? _notifyDate;
+  DateTime? _loanDate;
+
+  double? _violation1;
+  double? _violation2;
+  double? _violation3;
+  double? _greenLoss;
+  int? _delay1;
+  int? _delay2;
+  int? _delay3;
+  DateTime? _shouldNotifyDate;
+
+  String? _greenProcess; // 顯示計算過程
 
   final DateFormat _df = DateFormat('yyyy-MM-dd');
 
   @override
   void initState() {
     super.initState();
-    // 預設原始交屋：2023-10-31
-    _originalDate = DateTime(2023, 10, 31);
-    // 真正交屋：預設今天（去除時間）
-    final now = DateTime.now();
-    _actualDate = DateTime(now.year, now.month, now.day);
+    _permitDueDate = DateTime(2024, 1, 31);
+    _permitActualDate = DateTime(2025, 1, 3);
+    _notifyDate = DateTime(2025, 10, 9);
+    _loanDate = DateTime(2025, 09, 25);
   }
 
-  @override
-  void dispose() {
-    _moneyController.dispose();
-    super.dispose();
+  void _setBuilding(String building) {
+    setState(() {
+      if (building == '星悅館') {
+        _permitDueDate = DateTime(2024, 1, 31);
+        _permitActualDate = DateTime(2024, 12, 24);
+      } else if (building == '星辰館') {
+        _permitDueDate = DateTime(2023, 10, 31);
+        _permitActualDate = DateTime(2025, 1, 22);
+      }
+      _notifyDate = DateTime(2025, 10, 9);
+      _loanDate = DateTime(2025, 09, 25);
+    });
+  }
+
+  void _calculate() {
+    if (!_formKey.currentState!.validate()) return;
+
+    final paidBefore =
+        double.tryParse(_paidBeforeController.text.replaceAll(',', '')) ?? 0;
+    final totalPaid =
+        double.tryParse(_totalPaidController.text.replaceAll(',', '')) ?? 0;
+    final loanAmount =
+        double.tryParse(_loanAmountController.text.replaceAll(',', '')) ?? 0;
+
+    final paidAfter = totalPaid - paidBefore;
+
+    // 1️⃣ 延遲取得使用執照
+    final delay1 = _permitActualDate!.difference(_permitDueDate!).inDays;
+    final violation1 = paidBefore * _dailyRate * delay1;
+
+    // 2️⃣ 延遲通知交屋（貸款前）
+    final shouldNotifyDate = DateTime(
+      _permitActualDate!.year,
+      _permitActualDate!.month + 6,
+      _permitActualDate!.day,
+    );
+    final delay2 = _loanDate!.difference(shouldNotifyDate).inDays;
+    final delay2Safe = delay2 < 0 ? 0 : delay2;
+    final violation2 = paidBefore * _dailyRate * delay2Safe;
+
+    // 3️⃣ 延遲通知交屋（貸款後）
+    final delay3 = DateTime.now().difference(_loanDate!).inDays;
+    final delay3Safe = delay3 < 0 ? 0 : delay3;
+    final violation3 = paidAfter * _dailyRate * delay3Safe;
+
+    // 4️⃣ 新青安補助
+    final greenStart = _permitDueDate!;
+    final greenEnd = _loanDate!;
+    final greenDays = greenEnd.difference(greenStart).inDays;
+    const double greenRate = 0.00375; // 0.375%
+    final greenLoss = loanAmount * greenRate * greenDays / 365;
+    final greenProcess =
+        '本金：$loanAmount\n補貼利率：${greenRate * 100}%\n補助天數：$greenDays 天\n計算公式：$loanAmount × $greenRate × ($greenDays / 365)\n補助金額 ≈ ${greenLoss.toStringAsFixed(0)} 元';
+
+    setState(() {
+      _delay1 = delay1;
+      _delay2 = delay2Safe;
+      _delay3 = delay3Safe;
+      _violation1 = violation1;
+      _violation2 = violation2;
+      _violation3 = violation3;
+      _greenLoss = greenLoss;
+      _shouldNotifyDate = shouldNotifyDate;
+      _greenProcess = greenProcess;
+    });
   }
 
   Future<void> _pickDate(
@@ -65,293 +132,141 @@ class _LateInterestHomeState extends State<LateInterestHome> {
     DateTime? initial,
     ValueChanged<DateTime> onPicked,
   ) async {
-    final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: initial ?? now,
-      firstDate: DateTime(1900),
-      lastDate: DateTime(2100),
+      initialDate: initial ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
     );
     if (picked != null) onPicked(picked);
   }
 
-  void _calculate() {
-    if (!_formKey.currentState!.validate()) return;
-
-    final principal =
-        double.tryParse(_moneyController.text.replaceAll(',', '')) ?? 0.0;
-
-    if (_originalDate == null || _actualDate == null) {
-      _showSnack('請選擇「原始交屋日期」與「真正交屋日期」');
-      return;
-    }
-
-    final original = DateTime(
-      _originalDate!.year,
-      _originalDate!.month,
-      _originalDate!.day,
-    );
-    final actual = DateTime(
-      _actualDate!.year,
-      _actualDate!.month,
-      _actualDate!.day,
-    );
-
-    final daysTotal = actual.difference(original).inDays;
-
-    int daysToBorrow = 0;
-    if (_borrowRenovationDate != null) {
-      final borrow = DateTime(
-        _borrowRenovationDate!.year,
-        _borrowRenovationDate!.month,
-        _borrowRenovationDate!.day,
-      );
-      daysToBorrow = borrow.difference(original).inDays;
-      if (daysToBorrow < 0) daysToBorrow = 0; // 借屋日早於原始交屋 => 視為 0
-    }
-
-    // 單利：I = P * r(每日) * days
-    final safeDaysTotal = daysTotal < 0 ? 0 : daysTotal;
-    final interestTotal = principal * _dailyRate * safeDaysTotal;
-    final interestFromBorrow = daysToBorrow > 0
-        ? principal * _dailyRate * daysToBorrow
-        : 0.0;
-
-    setState(() {
-      _daysTotal = safeDaysTotal;
-      _daysToBorrow = daysToBorrow;
-      _interestTotal = interestTotal;
-      _interestFromBorrow = interestFromBorrow;
-    });
-  }
-
-  void _showSnack(String text) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
-  }
-
-  String _fmtMoney(double? v) => v == null ? '-' : v.toStringAsFixed(0);
+  String _fmt(double? v) => v == null ? '-' : v.toStringAsFixed(0);
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('預售屋遲延利息計算工具')),
+      appBar: AppBar(title: const Text('預售屋遲延與新青安補助試算')),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                '輸入資料',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-
-              TextFormField(
-                controller: _moneyController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: '已繳價款（本金，NT）',
-                  hintText: '例如：5000000',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) return '請輸入已繳價款';
-                  if (double.tryParse(v.replaceAll(',', '')) == null) {
-                    return '金額格式錯誤';
-                  }
-                  return null;
-                },
-              ),
-
-              const SizedBox(height: 12),
-
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _DatePickerTile(
-                    label: '原始交屋日期',
-                    date: _originalDate,
-                    onTap: () => _pickDate(
-                      context,
-                      _originalDate,
-                      (d) => setState(() => _originalDate = d),
-                    ),
-                  ),
-                  _DatePickerTile(
-                    label: '真正交屋日期',
-                    date: _actualDate,
-                    onTap: () => _pickDate(
-                      context,
-                      _actualDate,
-                      (d) => setState(() => _actualDate = d),
-                    ),
-                  ),
-                  _DatePickerTile(
-                    label: '借屋/裝修日期（可選）',
-                    date: _borrowRenovationDate,
-                    onTap: () => _pickDate(
-                      context,
-                      _borrowRenovationDate,
-                      (d) => setState(() => _borrowRenovationDate = d),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 16),
-
               Row(
                 children: [
-                  ElevatedButton.icon(
-                    onPressed: _calculate,
-                    icon: const Icon(Icons.calculate),
-                    label: const Text('計算'),
+                  ElevatedButton(
+                    onPressed: () => _setBuilding('星悅館'),
+                    child: const Text('星悅館'),
                   ),
-                  const SizedBox(width: 12),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _moneyController.clear();
-                        // 還原日期預設
-                        _originalDate = DateTime(2023, 10, 31);
-                        final now = DateTime.now();
-                        _actualDate = DateTime(now.year, now.month, now.day);
-                        _borrowRenovationDate = null;
-                        _daysTotal = null;
-                        _daysToBorrow = null;
-                        _interestTotal = null;
-                        _interestFromBorrow = null;
-                      });
-                    },
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('重設'),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () => _setBuilding('星辰館'),
+                    child: const Text('星辰館'),
                   ),
                 ],
               ),
-
+              const SizedBox(height: 20),
+              _buildMoneyField('貸款前已繳金額', _paidBeforeController),
+              _buildMoneyField(
+                '總已繳金額（已繳金額+貸款(一般貸款+新青安)）',
+                _totalPaidController,
+              ),
+              _buildMoneyField('貸款金額（新青安）', _loanAmountController),
               const SizedBox(height: 20),
 
-              const Text(
-                '計算結果',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              _buildDateTile(
+                '約定使用執照日期',
+                _permitDueDate,
+                (d) => setState(() => _permitDueDate = d),
               ),
-              const SizedBox(height: 8),
-
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '原始交屋日期: ${_originalDate == null ? '-' : _df.format(_originalDate!)}',
-                      ),
-                      Text(
-                        '真正交屋日期: ${_actualDate == null ? '-' : _df.format(_actualDate!)}',
-                      ),
-                      Text(
-                        '借屋/裝修日期: ${_borrowRenovationDate == null ? '-' : _df.format(_borrowRenovationDate!)}',
-                      ),
-                      const SizedBox(height: 8),
-                      Text('逾期天數（原始 -> 真正）: ${_daysTotal ?? '-'} 天'),
-                      Text('逾期天數（原始 -> 借屋/裝修）: ${_daysToBorrow ?? '-'} 天'),
-                      const SizedBox(height: 8),
-                      const Divider(),
-                      const SizedBox(height: 8),
-                      Text(
-                        '依全部逾期天數計算的遲延利息（單利、日利 0.05%）: NT\$ ${_fmtMoney(_interestTotal)}',
-                      ),
-                      if (_daysToBorrow != null && _daysToBorrow! > 0) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          '依借屋/裝修起算天數計算的遲延利息（單利、日利 0.05%）: NT\$ ${_fmtMoney(_interestFromBorrow)}',
-                        ),
-                      ],
-                      const SizedBox(height: 12),
-                      const Text(
-                        '備註：',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 4),
-                      const Text('• 本工具固定以「每日萬分之五（0.05%/日）」單利計算。'),
-                      const Text('• 若契約有特別約定（每日違約金、固定違約金等），請以契約為準。'),
-                      const Text('• 本工具為簡單利息，未考慮複利。'),
-                    ],
+              _buildDateTile(
+                '核准使用執照日期',
+                _permitActualDate,
+                (d) => setState(() => _permitActualDate = d),
+              ),
+              if (_permitActualDate != null)
+                ListTile(
+                  title: Text(
+                    '最遲通知交屋日期（使照+6個月）：${_df.format(_permitActualDate!.add(const Duration(days: 180)))}',
                   ),
                 ),
+              _buildDateTile(
+                '通知交屋日期',
+                _notifyDate,
+                (d) => setState(() => _notifyDate = d),
+              ),
+              _buildDateTile(
+                '貸款日',
+                _loanDate,
+                (d) => setState(() => _loanDate = d),
               ),
 
               const SizedBox(height: 20),
-
-              const Text(
-                '使用範例',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ElevatedButton.icon(
+                onPressed: _calculate,
+                icon: const Icon(Icons.calculate),
+                label: const Text('開始試算'),
               ),
-              const SizedBox(height: 8),
-              const Text(
-                '範例：本金 NT5,000,000，契約約定每日萬分之五（0.05%/日），原始交屋日 2025-01-01，真正交屋日 2025-04-01（90 天）。',
-              ),
-              const SizedBox(height: 6),
-              const Text('輸入：本金 5000000。按「計算」查看結果。'),
+              const SizedBox(height: 20),
 
-              const SizedBox(height: 40),
+              if (_violation1 != null) ...[
+                Text('延遲取得使用執照：$_delay1 天 → NT\$${_fmt(_violation1)}'),
+                Text('延遲通知交屋（貸款前）：$_delay2 天 → NT\$${_fmt(_violation2)}'),
+                Text('延遲通知交屋（貸款後）：$_delay3 天 → NT\$${_fmt(_violation3)}'),
+                const SizedBox(height: 8),
+                Text('新青安補貼金額（截至貸款日）：NT\$${_fmt(_greenLoss)}'),
+                Text('計算過程：\n$_greenProcess'),
+                const SizedBox(height: 8),
+                Text(
+                  '總計：NT\$${_fmt((_violation1 ?? 0) + (_violation2 ?? 0) + (_violation3 ?? 0))}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                Text(
+                  '總計包含新青安：NT\$${_fmt((_violation1 ?? 0) + (_violation2 ?? 0) + (_violation3 ?? 0) + (_greenLoss ?? 0))}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ],
+              Image.asset('assets/images/1.png'),
+              Image.asset('assets/images/2.png'),
             ],
           ),
         ),
       ),
     );
   }
-}
 
-class _DatePickerTile extends StatelessWidget {
-  final String label;
-  final DateTime? date;
-  final VoidCallback onTap;
-
-  const _DatePickerTile({
-    required this.label,
-    required this.date,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final df = DateFormat('yyyy-MM-dd');
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        width: MediaQuery.of(context).size.width / 1.8,
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade300),
-          borderRadius: BorderRadius.circular(6),
+  Widget _buildMoneyField(String label, TextEditingController c) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: c,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: const TextStyle(fontSize: 14)),
-                const SizedBox(height: 6),
-                Text(
-                  date == null ? '未選擇' : df.format(date!),
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const Icon(Icons.calendar_today, size: 18),
-          ],
-        ),
+        validator: (v) => (v == null || v.isEmpty) ? '請輸入金額' : null,
       ),
+    );
+  }
+
+  Widget _buildDateTile(
+    String label,
+    DateTime? date,
+    ValueChanged<DateTime> onPick,
+  ) {
+    return ListTile(
+      title: Text('$label：${date == null ? '-' : _df.format(date)}'),
+      trailing: const Icon(Icons.calendar_today),
+      onTap: () => _pickDate(context, date, onPick),
     );
   }
 }
